@@ -17,7 +17,13 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.*
@@ -32,6 +38,9 @@ import com.example.objectdetectionwithyolo.detector.Detector
 import com.example.objectdetectionwithyolo.presentation.widget.OverlayView
 import com.example.objectdetectionwithyolo.util.Constants.LABELS_PATH
 import com.example.objectdetectionwithyolo.util.Constants.MODEL_PATH
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 
 @Composable
@@ -40,6 +49,14 @@ fun ObjectDetectionScreen() {
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val overlayView = remember { OverlayView(context, null) }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+
+    val addedClasses = remember { mutableStateListOf<String>() }
+    val rejectedClasses = remember { mutableStateListOf<String>() }
+    val processedClasses = mutableSetOf<String>()
+    var debounceJob: Job? = null
 
     val detector = remember {
         Detector(context, MODEL_PATH, LABELS_PATH, object : Detector.DetectorListener {
@@ -51,6 +68,43 @@ fun ObjectDetectionScreen() {
                 overlayView.post {
                     overlayView.setResults(boundingBoxes)
                     overlayView.invalidate()
+
+                    val detected = boundingBoxes.firstOrNull()
+                    detected?.let {
+                        val className = it.clsName
+                        Log.e("Tespit edilen nesne", className)
+                        if (processedClasses.contains(className)) {
+                            return@let
+                        }
+
+                        //Nesne daha önce eklenmediyse ekle
+                        processedClasses.add(className)
+                        debounceJob?.cancel()
+                        debounceJob = coroutineScope.launch {
+                            delay(300)
+
+                            val result = snackbarHostState.showSnackbar(
+                                "$className nesnesi eklensin mi ?",
+                                actionLabel = "NESNEYİ EKLE",
+                                duration = SnackbarDuration.Indefinite,
+                                withDismissAction = true,
+                            )
+
+                            // Kullanıcı eylemi işlemi
+                            when (result) {
+                                SnackbarResult.ActionPerformed -> {
+                                    addedClasses.add(className)
+                                    snackbarHostState.currentSnackbarData?.dismiss()
+                                }
+                                SnackbarResult.Dismissed -> {
+                                    rejectedClasses.add(className)
+                                }
+                            }
+
+                            Log.e("Eklenenler", addedClasses.joinToString())
+                            Log.e("Reddedilenler", rejectedClasses.joinToString())
+                        }
+                    }
                 }
             }
         }).apply {
@@ -58,99 +112,107 @@ fun ObjectDetectionScreen() {
         }
     }
 
-    // Camera Permission
-    var hasPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        )
-    }
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { paddingValues ->
 
-    val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        hasPermission = granted
-    }
-
-    LaunchedEffect(true) {
-        if (!hasPermission) {
-            launcher.launch(Manifest.permission.CAMERA)
+        // Kamera izni işlemleri aynı kalıyor
+        var hasPermission by remember {
+            mutableStateOf(
+                ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            )
         }
-    }
 
-    if (hasPermission) {
-        AndroidView(factory = { ctx ->
-            val previewView = PreviewView(ctx).apply {
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
+        val launcher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            hasPermission = granted
+        }
+
+        LaunchedEffect(true) {
+            if (!hasPermission) {
+                launcher.launch(Manifest.permission.CAMERA)
             }
+        }
 
-            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-            cameraProviderFuture.addListener({
-                val cameraProvider = cameraProviderFuture.get()
-
-                val preview = Preview.Builder()
-                    .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-                    .setTargetRotation(previewView.display.rotation)
-                    .build()
-                    .also {
-                        it.setSurfaceProvider(previewView.surfaceProvider)
-                    }
-
-                val imageAnalyzer = ImageAnalysis.Builder()
-                    .setTargetAspectRatio(AspectRatio.RATIO_4_3)
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .setTargetRotation(previewView.display.rotation)
-                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-                    .build()
-                    .also {
-                        it.setAnalyzer(cameraExecutor) { imageProxy ->
-                            val bitmapBuffer =
-                                Bitmap.createBitmap(imageProxy.width, imageProxy.height, Bitmap.Config.ARGB_8888)
-                            imageProxy.use {
-                                bitmapBuffer.copyPixelsFromBuffer(it.planes[0].buffer)
-                            }
-
-                            val matrix = Matrix().apply {
-                                postRotate(imageProxy.imageInfo.rotationDegrees.toFloat())
-                            }
-
-                            val rotatedBitmap = Bitmap.createBitmap(
-                                bitmapBuffer, 0, 0, bitmapBuffer.width, bitmapBuffer.height, matrix, true
-                            )
-
-                            detector.detect(rotatedBitmap)
-                        }
-                    }
-
-                try {
-                    cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
-                        lifecycleOwner,
-                        CameraSelector.DEFAULT_BACK_CAMERA,
-                        preview,
-                        imageAnalyzer
+        if (hasPermission) {
+            AndroidView(factory = { ctx ->
+                val previewView = PreviewView(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
                     )
-                } catch (e: Exception) {
-                    Log.e("CameraX", "Binding failed", e)
                 }
 
-            }, ContextCompat.getMainExecutor(ctx))
+                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                cameraProviderFuture.addListener({
+                    val cameraProvider = cameraProviderFuture.get()
 
-            FrameLayout(ctx).apply {
-                addView(previewView)
-                addView(overlayView)
-            }
-        }, modifier = Modifier.fillMaxSize())
-    } else {
-        Text(
-            "Kamera izni gerekli",
-            color = androidx.compose.ui.graphics.Color.Red,
-            modifier = Modifier.padding(16.dp)
-        )
+                    val preview = Preview.Builder()
+                        .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                        .setTargetRotation(previewView.display.rotation)
+                        .build()
+                        .also {
+                            it.setSurfaceProvider(previewView.surfaceProvider)
+                        }
+
+                    val imageAnalyzer = ImageAnalysis.Builder()
+                        .setTargetAspectRatio(AspectRatio.RATIO_4_3)
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .setTargetRotation(previewView.display.rotation)
+                        .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+                        .build()
+                        .also {
+                            it.setAnalyzer(cameraExecutor) { imageProxy ->
+                                val bitmapBuffer =
+                                    Bitmap.createBitmap(imageProxy.width, imageProxy.height, Bitmap.Config.ARGB_8888)
+                                imageProxy.use {
+                                    bitmapBuffer.copyPixelsFromBuffer(it.planes[0].buffer)
+                                }
+
+                                val matrix = Matrix().apply {
+                                    postRotate(imageProxy.imageInfo.rotationDegrees.toFloat())
+                                }
+
+                                val rotatedBitmap = Bitmap.createBitmap(
+                                    bitmapBuffer, 0, 0, bitmapBuffer.width, bitmapBuffer.height, matrix, true
+                                )
+
+                                detector.detect(rotatedBitmap)
+                            }
+                        }
+
+                    try {
+                        cameraProvider.unbindAll()
+                        cameraProvider.bindToLifecycle(
+                            lifecycleOwner,
+                            CameraSelector.DEFAULT_BACK_CAMERA,
+                            preview,
+                            imageAnalyzer
+                        )
+                    } catch (e: Exception) {
+                        Log.e("CameraX", "Binding failed", e)
+                    }
+
+                }, ContextCompat.getMainExecutor(ctx))
+
+                FrameLayout(ctx).apply {
+                    addView(previewView)
+                    addView(overlayView)
+                }
+            }, modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues))
+        } else {
+            Text(
+                "Kamera izni gerekli",
+                color = androidx.compose.ui.graphics.Color.Red,
+                modifier = Modifier.padding(16.dp)
+            )
+        }
     }
 }
+
 
 
 /*
