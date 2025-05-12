@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.net.Uri
 import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -17,6 +18,11 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -33,6 +39,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.navigation.NavController
 import com.example.objectdetectionwithyolo.data.BoundingBox
 import com.example.objectdetectionwithyolo.detector.Detector
 import com.example.objectdetectionwithyolo.presentation.widget.OverlayView
@@ -41,10 +48,15 @@ import com.example.objectdetectionwithyolo.util.Constants.MODEL_PATH
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.util.concurrent.Executors
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ObjectDetectionScreen() {
+fun ObjectDetectionScreen(
+    navController: NavController
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
@@ -72,7 +84,6 @@ fun ObjectDetectionScreen() {
                     val detected = boundingBoxes.firstOrNull()
                     detected?.let {
                         val className = it.clsName
-                        Log.e("Tespit edilen nesne", className)
                         if (processedClasses.contains(className)) {
                             return@let
                         }
@@ -90,7 +101,6 @@ fun ObjectDetectionScreen() {
                                 withDismissAction = true,
                             )
 
-                            // Kullanıcı eylemi işlemi
                             when (result) {
                                 SnackbarResult.ActionPerformed -> {
                                     addedClasses.add(className)
@@ -100,7 +110,6 @@ fun ObjectDetectionScreen() {
                                     rejectedClasses.add(className)
                                 }
                             }
-
                             Log.e("Eklenenler", addedClasses.joinToString())
                             Log.e("Reddedilenler", rejectedClasses.joinToString())
                         }
@@ -114,6 +123,26 @@ fun ObjectDetectionScreen() {
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text("Nesneleriniz Tanıtınız")
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            val jsonList = Json.encodeToString(addedClasses.toList())
+                            val encodedList = Uri.encode(jsonList)
+                            navController.navigate("result_screen/$encodedList")
+                        }) {
+                        Icon(
+                            imageVector = Icons.Filled.Done,
+                            contentDescription = "Object Detection Completed Button"
+                        )
+                    }
+                }
+            )
+        }
     ) { paddingValues ->
 
         // Kamera izni işlemleri aynı kalıyor

@@ -2,25 +2,23 @@ package com.example.objectdetectionwithyolo
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.example.objectdetectionwithyolo.presentation.screens.ObjectDetectionScreen
+import com.example.objectdetectionwithyolo.presentation.screens.ResultScreen
 import com.example.objectdetectionwithyolo.presentation.ui.theme.ObjectDetectionWithYoloTheme
+import kotlinx.serialization.json.Json
 
 class MainActivity : ComponentActivity() {
     private val requestPermissionLauncher = registerForActivityResult(
@@ -48,11 +46,27 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             ObjectDetectionWithYoloTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+                val navController = rememberNavController()
+                NavHost(
+                    navController = navController,
+                    startDestination = "object_detection_screen"
                 ) {
-                    ObjectDetectionScreen()
+
+                    composable("object_detection_screen") {
+                        ObjectDetectionScreen(navController = navController)
+                    }
+
+                    composable(
+                        "result_screen/{resultList}",
+                        arguments = listOf(navArgument("resultList") {
+                            type = NavType.StringType
+                        })
+                    ) { backStackEntry ->
+                        val json = backStackEntry.arguments?.getString("resultList") ?: "[]"
+                        val addedClasses: List<String> = Json.decodeFromString(json)
+
+                        ResultScreen(resultList = addedClasses)
+                    }
                 }
             }
         }

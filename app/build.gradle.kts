@@ -49,6 +49,7 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.navigation.compose)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -67,4 +68,7 @@ dependencies {
     implementation ("org.tensorflow:tensorflow-lite-task-vision:0.4.0")
     implementation ("org.tensorflow:tensorflow-lite-gpu-delegate-plugin:0.4.0")
     implementation ("org.tensorflow:tensorflow-lite-gpu:2.12.0")
+
+    //Json
+    implementation ("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
 }
